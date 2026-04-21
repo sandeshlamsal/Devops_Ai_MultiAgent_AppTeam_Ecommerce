@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import Redis from 'ioredis'
 import { AgentEvent, AgentRole, EventType } from './types'
 
@@ -45,7 +46,7 @@ export class EventBus {
 
   async emit(type: EventType, from: AgentRole, payload: Record<string, unknown> = {}): Promise<void> {
     const event: AgentEvent = {
-      id: crypto.randomUUID(),
+      id: randomUUID(),
       type,
       from,
       payload,

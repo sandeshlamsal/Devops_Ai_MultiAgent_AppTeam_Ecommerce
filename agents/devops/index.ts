@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { BaseAgent } from '../shared/base-agent'
 import { EventBus } from '../shared/event-bus'
 import { ContextStore } from '../shared/context-store'
@@ -70,7 +71,7 @@ Return JSON array: [{ "path": "...", "content": "..." }]`,
     const pr = this.store.getPullRequests().find(p => p.id === prId)
     if (!pr) return
 
-    const deploymentId = crypto.randomUUID()
+    const deploymentId = randomUUID()
     const deployment: DeploymentRecord = {
       id: deploymentId,
       environment: 'staging',

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { BaseAgent } from '../shared/base-agent'
 import { EventBus } from '../shared/event-bus'
 import { ContextStore } from '../shared/context-store'
@@ -81,7 +82,7 @@ Generate all necessary files:
 Return JSON array: [{ "path": "...", "content": "..." }]`,
     )
 
-    const prId = crypto.randomUUID()
+    const prId = randomUUID()
     const story = (stories as Array<{ epic: string; id: string }>).find(s =>
       s.epic.toLowerCase().includes(domain),
     )

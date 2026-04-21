@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { BaseAgent } from '../shared/base-agent'
 import { EventBus } from '../shared/event-bus'
 import { ContextStore } from '../shared/context-store'
@@ -86,7 +87,7 @@ Use src/app/ directory structure. Include realistic mock data where API isn't wi
 Return a JSON array: [{ "path": "src/app/...", "content": "..." }]`,
     )
 
-    const prId = crypto.randomUUID()
+    const prId = randomUUID()
     const pr: PullRequest = {
       id: prId,
       agent: 'frontend-dev',
