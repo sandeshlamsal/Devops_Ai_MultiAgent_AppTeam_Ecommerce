@@ -4,12 +4,13 @@
   "description": "AI software team: parallel agents building an e-commerce app",
   "main": "dist/agents/index.js",
   "scripts": {
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down -v",
     "agents:start": "ts-node agents/index.ts",
     "agents:dev": "ts-node-dev --respawn agents/index.ts",
+    "start": "npm run infra:up && npm run agents:start",
     "build": "tsc",
-    "typecheck": "tsc --noEmit",
-    "artifacts": "docker compose cp agents:/app/workspace ./workspace",
-    "logs": "docker compose logs agents -f"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

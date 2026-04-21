@@ -49,22 +49,27 @@ echo "ANTHROPIC_API_KEY=sk-ant-..." >> .env
 
 ### Option B — Claude Code CLI ✅ (this project uses this)
 
-Each agent spawns a `claude --print "..."` subprocess. The `claude` CLI authenticates using the OAuth credentials stored at `~/.claude` on your host — the same session used when you run `claude` in your terminal. **This runs entirely under your Pro plan. No API key, no credit balance needed.**
+Each agent spawns a `claude --print "..."` subprocess. The `claude` CLI authenticates using the OAuth credentials already stored at `~/.claude` on your machine — the same session used when you run `claude` in your terminal. **This runs entirely under your Pro plan. No API key, no credit balance needed.**
 
 ```
-Your app → claude CLI subprocess → ~/.claude credentials → Claude Pro plan
-                                        ↑
-                            mounted into Docker as read-only volume
+Your app → execFileAsync('claude', ['--print', prompt])
+                │
+                ▼
+         claude CLI on host → ~/.claude credentials → Claude Pro plan
 ```
 
-**How it works technically:**
+**Architecture split — why not run agents in Docker:**
+
+Docker Desktop on Mac restricts which host paths can be bind-mounted. The `~/.claude` auth directory (which contains OAuth session tokens) cannot be reliably shared into a container without manual Docker Desktop → Preferences → File Sharing configuration. Instead of that friction:
+
+- **Redis + Postgres** run in Docker (pure infrastructure, no auth needed)
+- **Agents run on your host** directly, where `claude` CLI is already authenticated
 
 ```
-docker-compose.yml
-  agents:
-    volumes:
-      - $HOME/.claude:/root/.claude:ro   ← host credentials, read-only
-                                            container's claude CLI uses these
+┌─ Docker ──────────────────────┐    ┌─ Host (npm run agents:start) ─┐
+│  redis:6379                   │◄───│  9 agents (Node.js process)   │
+│  postgres:5432                │    │  claude CLI subprocess calls  │
+└───────────────────────────────┘    └───────────────────────────────┘
 ```
 
 ```typescript
@@ -85,11 +90,9 @@ protected async callLLM(userMessage: string): Promise<string> {
 
 **Setup (one time):**
 ```bash
-# 1. Make sure you're logged in to Claude Code on your host
-claude   # opens interactive session — confirms you're authenticated
-
-# 2. That's it — ~/.claude is automatically mounted into Docker
-docker compose up
+# Confirm claude CLI is working and authenticated
+claude --version    # should print version
+claude -p "hello"   # should return a response
 ```
 
 **Tradeoff vs Option A:**
@@ -133,13 +136,15 @@ After the fix, the real error became visible:
 
 **Fix 3 — Billing architecture:** The API key used had no credits. Discovered the two-billing-system problem (Pro plan ≠ API credits). Rather than top up, migrated the entire LLM backend from `@anthropic-ai/sdk` to `claude` CLI subprocesses (Option B above), so the project runs under the existing Pro plan.
 
+**Fix 4 — Docker credential mounting:** Attempted to mount `~/.claude` into the agents container. Docker Desktop on Mac blocks this path. Resolved by separating concerns: Redis + Postgres stay in Docker, agents run on the host where `claude` CLI is already authenticated. Clean teardown still works via `docker compose down -v`.
+
 ### Current State
 
 ```
-Infrastructure:  ✅ Redis + Postgres + agents container running
-Agents:          ✅ 9 agents subscribed and ready
-Auth:            ✅ Migrated to claude CLI (Pro plan, no API credits needed)
-Sprint 1:        ⏳ Ready to run — pending docker compose up with new image
+Infrastructure:  ✅ Redis + Postgres in Docker (docker compose up -d)
+Agents:          ✅ 9 agents, run locally via npm run agents:start
+Auth:            ✅ claude CLI on host (Pro plan, no API credits needed)
+Sprint 1:        ⏳ Ready — run: npm start
 ```
 
 ---
@@ -394,24 +399,42 @@ Redis pub/sub means every subscriber sees every message. This enables:
 
 ## Run It
 
-**Prerequisites:** Claude Code installed and authenticated (`claude` works in your terminal).
+**Prerequisites:** Node.js 20+, Docker Desktop, Claude Code authenticated (`claude -p "hi"` works in your terminal).
 
 ```bash
-# 1. Copy env (no API key needed)
+# 1. Install dependencies
+npm install
+
+# 2. Copy env (no API key needed — uses your claude CLI session)
 cp .env.example .env
 
-# 2. Start everything — Redis, Postgres, and all 9 agents
-docker compose up
+# 3. Start infrastructure (Redis + Postgres) in Docker
+npm run infra:up
+# or: docker compose up -d
 
-# 3. Stream live logs in another terminal
-npm run logs
-# or: docker compose logs agents -f
+# 4. Run all 9 agents locally (uses host's claude CLI auth)
+npm run agents:start
 
-# 4. Copy all generated artifacts to your host when done
-npm run artifacts
+# --- or do both in one command ---
+npm start
 
-# 5. Tear down everything cleanly
-docker compose down -v
+# 5. Tear down infrastructure when done
+npm run infra:down
+# or: docker compose down -v
+```
+
+**Generated artifacts** are written to `workspace/` in the project directory:
+```
+workspace/
+├── context.json                    ← live shared state (stories, PRs, contracts)
+└── artifacts/
+    ├── stories/user-stories.json
+    ├── architecture/system-design.md
+    ├── architecture/api-contracts.json
+    ├── frontend/src/...
+    ├── backend/src/...
+    ├── tests/...
+    └── reports/...
 ```
 
 ---

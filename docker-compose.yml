@@ -27,24 +27,6 @@ services:
       timeout: 3s
       retries: 5
 
-  agents:
-    build:
-      context: .
-      dockerfile: Dockerfile.agents
-    env_file: .env
-    environment:
-      REDIS_URL: redis://redis:6379
-    volumes:
-      - workspace:/app/workspace
-      # Mount host Claude Code credentials so agents run under your Pro plan
-      # No API key or separate billing needed
-      - $HOME/.claude:/root/.claude:ro
-    depends_on:
-      redis:
-        condition: service_healthy
-    restart: on-failure
-
 volumes:
   redis_data:
   postgres_data:
-  workspace:
