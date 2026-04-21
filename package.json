@@ -1,0 +1,26 @@
+{
+  "name": "devops-ai-multi-agent-ecommerce",
+  "version": "0.1.0",
+  "description": "AI software team: parallel agents building an e-commerce app",
+  "main": "dist/agents/index.js",
+  "scripts": {
+    "agents:start": "ts-node agents/index.ts",
+    "agents:dev": "ts-node-dev --respawn agents/index.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "artifacts": "docker compose cp agents:/app/workspace ./workspace",
+    "logs": "docker compose logs agents -f"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "dotenv": "^16.4.5",
+    "ioredis": "^5.3.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.7",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.4.5"
+  }
+}
