@@ -1,10 +1,12 @@
-import Anthropic from '@anthropic-ai/sdk'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import { EventBus } from './event-bus'
 import { ContextStore } from './context-store'
 import { AgentRole, EventType, AgentEvent } from './types'
 
+const execFileAsync = promisify(execFile)
+
 export abstract class BaseAgent {
-  protected client: Anthropic
   protected role: AgentRole
   protected systemPrompt: string
 
@@ -14,7 +16,6 @@ export abstract class BaseAgent {
     protected bus: EventBus,
     protected store: ContextStore,
   ) {
-    this.client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
     this.role = role
     this.systemPrompt = systemPrompt
   }
@@ -28,14 +29,12 @@ export abstract class BaseAgent {
           const msg = String(err)
           console.error(`\x1b[31m[${this.role}] Error in handleEvent(${event.type}):\x1b[0m`, msg)
 
-          // Credit errors are fatal — stop the whole process with a clear message
-          if (msg.includes('credit balance is too low')) {
-            console.error('\x1b[31m\n⛔  FATAL: Anthropic API credit balance is too low.')
-            console.error('   Add credits at: https://console.anthropic.com/settings/billing\n\x1b[0m')
+          if (msg.includes('claude: not found') || msg.includes('ENOENT')) {
+            console.error('\x1b[31m\n⛔  FATAL: claude CLI not found.')
+            console.error('   Make sure @anthropic-ai/claude-code is installed and you are authenticated.\n\x1b[0m')
             process.exit(1)
           }
 
-          // Don't escalate from the PM's own blocker handler — it would loop forever
           if (this.role !== 'pm' && event.type !== 'blocker.raised') {
             await this.emit('blocker.raised', { agent: this.role, event: event.type, error: msg })
           }
@@ -49,38 +48,32 @@ export abstract class BaseAgent {
   protected abstract handleEvent(event: AgentEvent): Promise<void>
 
   protected async callLLM(userMessage: string, extraContext?: string): Promise<string> {
-    const systemBlocks: Anthropic.Messages.TextBlockParam[] = [
-      {
-        type: 'text',
-        text: this.systemPrompt,
-        cache_control: { type: 'ephemeral' },
-      },
+    // Compose the full prompt: system instructions + optional context + user message
+    const parts: string[] = [
+      `<system_instructions>\n${this.systemPrompt}\n</system_instructions>`,
     ]
-
     if (extraContext) {
-      systemBlocks.push({ type: 'text', text: extraContext })
+      parts.push(`<context>\n${extraContext}\n</context>`)
     }
+    parts.push(userMessage)
+    const fullPrompt = parts.join('\n\n')
 
-    console.log(`\x1b[90m[${this.role}] → Anthropic API call (max_tokens=8096)...\x1b[0m`)
+    console.log(`\x1b[90m[${this.role}] → claude CLI (non-interactive)...\x1b[0m`)
 
-    const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`[${this.role}] API call timed out after 120s`)), 120_000),
-    )
-
-    const apiCall = this.client.messages.create({
-      model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
-      max_tokens: 8096,
-      system: systemBlocks,
-      messages: [{ role: 'user', content: userMessage }],
+    const { stdout, stderr } = await execFileAsync(
+      'claude',
+      ['--print', fullPrompt, '--output-format', 'text'],
+      { timeout: 120_000 },
+    ).catch((err: NodeJS.ErrnoException & { stdout?: string; stderr?: string }) => {
+      throw new Error(`claude CLI error: ${err.stderr ?? err.message}`)
     })
 
-    const response = await Promise.race([apiCall, timeout])
+    if (stderr) {
+      console.warn(`\x1b[33m[${this.role}] claude stderr: ${stderr}\x1b[0m`)
+    }
 
-    console.log(`\x1b[90m[${this.role}] ← API response received (${response.usage?.output_tokens ?? '?'} output tokens)\x1b[0m`)
-
-    const block = response.content[0]
-    if (block.type !== 'text') throw new Error(`Unexpected content type: ${block.type}`)
-    return block.text
+    console.log(`\x1b[90m[${this.role}] ← response received (${stdout.length} chars)\x1b[0m`)
+    return stdout.trim()
   }
 
   protected async callLLMJson<T>(userMessage: string, extraContext?: string): Promise<T> {
