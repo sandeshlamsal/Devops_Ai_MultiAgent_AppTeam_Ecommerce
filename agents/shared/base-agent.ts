@@ -34,6 +34,13 @@ export abstract class BaseAgent {
             process.exit(1)
           }
 
+          if (msg.toLowerCase().includes('credit balance is too low') || msg.toLowerCase().includes('credit balance')) {
+            console.error('\x1b[31m\n⛔  FATAL: Anthropic API credit balance is too low.')
+            console.error('   claude -p (automation mode) bills API credits separately from your Pro plan.')
+            console.error('   Add credits at: https://console.anthropic.com/settings/billing\n\x1b[0m')
+            process.exit(1)
+          }
+
           if (this.role !== 'pm' && event.type !== 'blocker.raised') {
             await this.emit('blocker.raised', { agent: this.role, event: event.type, error: msg })
           }

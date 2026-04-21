@@ -6,37 +6,41 @@
 
 ## Billing & Authentication
 
-> **This is the most important section before you run anything.**
+> **Read this before running anything.**
 
-### The Problem: Two Separate Billing Systems
+### How Anthropic Billing Actually Works
 
-Anthropic has two completely independent products with separate billing:
+Anthropic has two separate billing systems that are easy to confuse:
 
-| | Claude Pro ($20/mo) | Anthropic API (pay-as-you-go) |
+| | Claude Pro / Max (subscription) | Anthropic API (pay-as-you-go) |
 |---|---|---|
-| **What it covers** | claude.ai web app, Claude Code CLI | Direct API access via `@anthropic-ai/sdk` |
+| **What it covers** | claude.ai web, **Claude Code interactive sessions** | Direct API calls — SDK *and* `claude -p` automation |
 | **How you pay** | Monthly subscription | Credit balance at console.anthropic.com |
-| **Starts with credits?** | Yes — unlimited via Pro plan | No — starts at $0, minimum top-up |
-| **API key source** | Not available | console.anthropic.com/api-keys |
+| **`claude -p` covered?** | ❌ No | ✅ Yes |
+| **Interactive `claude` chat covered?** | ✅ Yes | N/A |
 
-A Claude Pro subscription does **not** include API credits. If you run agents that call the `@anthropic-ai/sdk` directly with your own API key, that is billed separately even if you pay $20/month for Pro.
+**The key distinction:** Your Pro plan covers _interactive_ Claude Code sessions (the chat you have in your terminal or VSCode). The moment you call `claude -p` (non-interactive/automation mode), it makes direct API calls billed against your credit balance — even if you have a Pro plan.
+
+**This project uses `claude -p` automation. You need API credits regardless of your subscription plan.**
 
 ---
 
-### Option A — Anthropic API (direct SDK)
+### Getting API Credits (Required)
 
-Each agent calls `new Anthropic({ apiKey })` directly. Fast, simple, full control over model and parameters.
+Both options below use API credits. Top up once at:
+👉 **[console.anthropic.com/settings/billing](https://console.anthropic.com/settings/billing)**
 
-**Requires:** API credits topped up at [console.anthropic.com/settings/billing](https://console.anthropic.com/settings/billing)
+**Cost estimate:** A full sprint run costs ~$0.50–$2.00. Minimum top-up is $5 — enough for several runs.
+
+---
+
+### Option A — Anthropic SDK (direct API key)
+
+Each agent calls `new Anthropic({ apiKey })` directly. Requires an API key and credits.
 
 ```
 Your app → @anthropic-ai/sdk → api.anthropic.com → billed against credit balance
 ```
-
-**Cost estimate for this project:**
-- A full sprint run (BA → Architect → 3 PRs → QA + Security → Deploy): ~$0.50–$2.00
-- With prompt caching (system prompts cached): ~40% cheaper on repeat calls
-- Minimum top-up: $5
 
 **Setup:**
 ```bash
@@ -49,7 +53,7 @@ echo "ANTHROPIC_API_KEY=sk-ant-..." >> .env
 
 ### Option B — Claude Code CLI ✅ (this project uses this)
 
-Each agent spawns a `claude --print "..."` subprocess. The `claude` CLI authenticates using the OAuth credentials already stored at `~/.claude` on your machine — the same session used when you run `claude` in your terminal. **This runs entirely under your Pro plan. No API key, no credit balance needed.**
+Each agent spawns a `claude -p "..."` subprocess. The `claude` CLI uses your existing `~/.claude` session — no API key to manage. **Still requires API credits** (same billing as Option A), but you don't need to handle keys yourself.
 
 ```
 Your app → execFileAsync('claude', ['--print', prompt])
@@ -99,12 +103,12 @@ claude -p "hello"   # should return a response
 
 | | Option A (SDK) | Option B (CLI) ✅ |
 |---|---|---|
-| Billing | Pay-per-token API credits | Included in Pro plan |
+| Billing | API credits required | API credits required (same) |
+| API key management | You manage it in `.env` | Handled by `~/.claude` session |
 | Latency per call | ~1–3s | ~2–5s (subprocess overhead) |
 | Model control | Full (model, tokens, temp) | Inherits Claude Code defaults |
 | Streaming | Yes | No (waits for full response) |
-| Prompt caching | Yes (`cache_control`) | Managed by Claude Code |
-| Best for | Production scale, high volume | Development, personal projects |
+| Best for | Production/CI environments | Local dev, no key management |
 
 ---
 
@@ -136,15 +140,18 @@ After the fix, the real error became visible:
 
 **Fix 3 — Billing architecture:** The API key used had no credits. Discovered the two-billing-system problem (Pro plan ≠ API credits). Rather than top up, migrated the entire LLM backend from `@anthropic-ai/sdk` to `claude` CLI subprocesses (Option B above), so the project runs under the existing Pro plan.
 
-**Fix 4 — Docker credential mounting:** Attempted to mount `~/.claude` into the agents container. Docker Desktop on Mac blocks this path. Resolved by separating concerns: Redis + Postgres stay in Docker, agents run on the host where `claude` CLI is already authenticated. Clean teardown still works via `docker compose down -v`.
+**Fix 4 — Docker credential mounting:** Attempted to mount `~/.claude` into the agents container. Docker Desktop on Mac blocks this path. Resolved by separating concerns: Redis + Postgres stay in Docker, agents run on the host where `claude` CLI is already authenticated.
+
+**Fix 5 — Billing model misunderstanding:** `claude -p` automation mode bills API credits separately from the Pro plan subscription — same as calling `@anthropic-ai/sdk` directly. The Pro plan only covers interactive sessions. Added a `process.exit(1)` fast-fail with a clear message when credit balance is detected. Corrected the readme billing section.
 
 ### Current State
 
 ```
 Infrastructure:  ✅ Redis + Postgres in Docker (docker compose up -d)
 Agents:          ✅ 9 agents, run locally via npm run agents:start
-Auth:            ✅ claude CLI on host (Pro plan, no API credits needed)
-Sprint 1:        ⏳ Ready — run: npm start
+Auth:            ✅ claude CLI binary auto-detected from VS Code extension
+Billing:         ⏳ Requires API credits — add at console.anthropic.com/settings/billing
+Sprint 1:        ⏳ Ready to run once credits are available
 ```
 
 ---
