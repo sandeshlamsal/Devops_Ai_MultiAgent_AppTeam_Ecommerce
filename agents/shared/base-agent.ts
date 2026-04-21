@@ -3,6 +3,7 @@ import { promisify } from 'util'
 import { EventBus } from './event-bus'
 import { ContextStore } from './context-store'
 import { AgentRole, EventType, AgentEvent } from './types'
+import { findClaudeBinary } from './claude-binary'
 
 const execFileAsync = promisify(execFile)
 
@@ -60,12 +61,13 @@ export abstract class BaseAgent {
 
     console.log(`\x1b[90m[${this.role}] → claude CLI (non-interactive)...\x1b[0m`)
 
+    const claudeBin = findClaudeBinary()
     const { stdout, stderr } = await execFileAsync(
-      'claude',
-      ['--print', fullPrompt, '--output-format', 'text'],
+      claudeBin,
+      ['-p', fullPrompt, '--output-format', 'text'],
       { timeout: 120_000 },
     ).catch((err: NodeJS.ErrnoException & { stdout?: string; stderr?: string }) => {
-      throw new Error(`claude CLI error: ${err.stderr ?? err.message}`)
+      throw new Error(`claude CLI error: ${err.stderr ?? err.message ?? err.code}`)
     })
 
     if (stderr) {
