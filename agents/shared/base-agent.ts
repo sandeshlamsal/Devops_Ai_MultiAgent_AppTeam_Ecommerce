@@ -1,11 +1,9 @@
-import { execFile } from 'child_process'
-import { promisify } from 'util'
+import { spawn } from 'child_process'
 import { EventBus } from './event-bus'
 import { ContextStore } from './context-store'
 import { AgentRole, EventType, AgentEvent } from './types'
 import { findClaudeBinary } from './claude-binary'
 
-const execFileAsync = promisify(execFile)
 
 export abstract class BaseAgent {
   protected role: AgentRole
@@ -62,20 +60,36 @@ export abstract class BaseAgent {
     console.log(`\x1b[90m[${this.role}] → claude CLI (non-interactive)...\x1b[0m`)
 
     const claudeBin = findClaudeBinary()
-    const { stdout, stderr } = await execFileAsync(
-      claudeBin,
-      ['-p', fullPrompt, '--output-format', 'text'],
-      { timeout: 120_000 },
-    ).catch((err: NodeJS.ErrnoException & { stdout?: string; stderr?: string }) => {
-      throw new Error(`claude CLI error: ${err.stderr ?? err.message ?? err.code}`)
+    return new Promise<string>((resolve, reject) => {
+      const child = spawn(claudeBin, ['-p', fullPrompt, '--output-format', 'text'], {
+        stdio: ['ignore', 'pipe', 'pipe'], // ignore stdin so claude doesn't wait for it
+      })
+
+      let stdout = ''
+      let stderr = ''
+      child.stdout.on('data', (chunk: Buffer) => { stdout += chunk })
+      child.stderr.on('data', (chunk: Buffer) => { stderr += chunk })
+
+      const timer = setTimeout(() => {
+        child.kill()
+        reject(new Error(`[${this.role}] claude CLI timed out after 120s`))
+      }, 120_000)
+
+      child.on('close', (code) => {
+        clearTimeout(timer)
+        if (code !== 0) {
+          reject(new Error(`claude CLI error (exit ${code}): ${stderr.trim() || stdout.trim()}`))
+        } else {
+          console.log(`\x1b[90m[${this.role}] ← response received (${stdout.length} chars)\x1b[0m`)
+          resolve(stdout.trim())
+        }
+      })
+
+      child.on('error', (err) => {
+        clearTimeout(timer)
+        reject(new Error(`claude CLI spawn error: ${err.message}`))
+      })
     })
-
-    if (stderr) {
-      console.warn(`\x1b[33m[${this.role}] claude stderr: ${stderr}\x1b[0m`)
-    }
-
-    console.log(`\x1b[90m[${this.role}] ← response received (${stdout.length} chars)\x1b[0m`)
-    return stdout.trim()
   }
 
   protected async callLLMJson<T>(userMessage: string, extraContext?: string): Promise<T> {
